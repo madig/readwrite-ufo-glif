@@ -1,0 +1,16 @@
+[package]
+name = "readwrite-ufo-glif"
+version = "0.1.0"
+license = "Apache-2.0"
+authors = ["Nikolaus Waxweiler <madigens@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "readwrite_ufo_glif"
+crate-type = ["cdylib"]
+
+[dependencies]
+norad = "0.4"
+pyo3 = { version = "0.13.2", features = ["extension-module"] }
