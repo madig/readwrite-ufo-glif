@@ -264,11 +264,11 @@ fn read_glyph(
             point_pen.call_method("beginPath", (), Some(kwargs))?;
 
             for point in &contour.points {
+                let pt = (point.x, point.y).to_object(py);
                 let kwargs = [
                     ("name", point.name.to_object(py)),
-                    ("pt", (point.x, point.y).to_object(py)),
                     (
-                        "type",
+                        "segmentType",
                         match point.typ {
                             norad::PointType::Move => Some("move"),
                             norad::PointType::Line => Some("line"),
@@ -289,38 +289,33 @@ fn read_glyph(
                     ),
                 ]
                 .into_py_dict(py);
-                point_pen.call_method("addPoint", (), Some(kwargs))?;
+                point_pen.call_method("addPoint", (pt,), Some(kwargs))?;
             }
 
             point_pen.call_method("endPath", (), None)?;
         }
 
         for component in &glyph.components {
-            let kwargs = [
-                ("baseGlyph", component.base.to_object(py)),
-                (
-                    "transformation",
-                    (
-                        component.transform.x_scale,
-                        component.transform.xy_scale,
-                        component.transform.yx_scale,
-                        component.transform.y_scale,
-                        component.transform.x_offset,
-                        component.transform.y_offset,
-                    )
-                        .to_object(py),
-                ),
-                (
-                    "identifier",
-                    component
-                        .identifier()
-                        .as_ref()
-                        .map(|c| c.as_str())
-                        .to_object(py),
-                ),
-            ]
+            let base = component.base.to_object(py);
+            let transform = (
+                component.transform.x_scale,
+                component.transform.xy_scale,
+                component.transform.yx_scale,
+                component.transform.y_scale,
+                component.transform.x_offset,
+                component.transform.y_offset,
+            )
+                .to_object(py);
+            let kwargs = [(
+                "identifier",
+                component
+                    .identifier()
+                    .as_ref()
+                    .map(|c| c.as_str())
+                    .to_object(py),
+            )]
             .into_py_dict(py);
-            point_pen.call_method("addComponent", (), Some(kwargs))?;
+            point_pen.call_method("addComponent", (base, transform), Some(kwargs))?;
         }
     }
 
