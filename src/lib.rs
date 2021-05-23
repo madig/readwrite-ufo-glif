@@ -23,6 +23,11 @@ use pyo3::wrap_pyfunction;
 
 create_exception!(readwrite_ufo_glif, GlifReadError, PyException);
 
+// Todo: distinguish:
+// - read_glyph_from_path
+// - read_glyph_from_bytes
+// for easier plugging into fs-based glifLib.
+
 #[pyfunction]
 fn read_glyph(
     glif_path: &str,
@@ -262,8 +267,6 @@ fn read_glyph(
                 let kwargs = [
                     ("name", point.name.to_object(py)),
                     ("pt", (point.x, point.y).to_object(py)),
-                    // ("x", point.x.to_object(py)),
-                    // ("y", point.y.to_object(py)),
                     (
                         "type",
                         match point.typ {
