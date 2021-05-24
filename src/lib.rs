@@ -97,16 +97,12 @@ fn read_glyph(
         let mut object_libs = HashMap::<&str, PyObject>::new();
         for anchor in &glyph.anchors {
             if let Some(olib) = anchor.lib() {
-                let mut object_lib = HashMap::<&str, PyObject>::new();
-                for (key, value) in olib.iter() {
-                    let py_value = convert_lib_key_value(key, value, py).map_err(|e| {
-                        GlifReadError::new_err(format!(
-                            "Failed to read glif file at '{}' due to anchor lib data: {}",
-                            glif_path, e
-                        ))
-                    })?;
-                    object_lib.insert(key, py_value);
-                }
+                let object_lib = convert_object_lib(olib, py).map_err(|e| {
+                    GlifReadError::new_err(format!(
+                        "Failed to read glif file at '{}' due to anchor lib data: {}",
+                        glif_path, e
+                    ))
+                })?;
                 object_libs.insert(
                     anchor.identifier().unwrap().as_str(),
                     object_lib.to_object(py),
@@ -115,16 +111,12 @@ fn read_glyph(
         }
         for guideline in &glyph.guidelines {
             if let Some(olib) = guideline.lib() {
-                let mut object_lib = HashMap::<&str, PyObject>::new();
-                for (key, value) in olib.iter() {
-                    let py_value = convert_lib_key_value(key, value, py).map_err(|e| {
-                        GlifReadError::new_err(format!(
-                            "Failed to read glif file at '{}' due to guideline lib data: {}",
-                            glif_path, e
-                        ))
-                    })?;
-                    object_lib.insert(key, py_value);
-                }
+                let object_lib = convert_object_lib(olib, py).map_err(|e| {
+                    GlifReadError::new_err(format!(
+                        "Failed to read glif file at '{}' due to guideline lib data: {}",
+                        glif_path, e
+                    ))
+                })?;
                 object_libs.insert(
                     guideline.identifier().unwrap().as_str(),
                     object_lib.to_object(py),
@@ -133,16 +125,12 @@ fn read_glyph(
         }
         for contour in &glyph.contours {
             if let Some(olib) = contour.lib() {
-                let mut object_lib = HashMap::<&str, PyObject>::new();
-                for (key, value) in olib.iter() {
-                    let py_value = convert_lib_key_value(key, value, py).map_err(|e| {
-                        GlifReadError::new_err(format!(
-                            "Failed to read glif file at '{}' due to contour lib data: {}",
-                            glif_path, e
-                        ))
-                    })?;
-                    object_lib.insert(key, py_value);
-                }
+                let object_lib = convert_object_lib(olib, py).map_err(|e| {
+                    GlifReadError::new_err(format!(
+                        "Failed to read glif file at '{}' due to contour lib data: {}",
+                        glif_path, e
+                    ))
+                })?;
                 object_libs.insert(
                     contour.identifier().unwrap().as_str(),
                     object_lib.to_object(py),
@@ -150,16 +138,12 @@ fn read_glyph(
             }
             for point in &contour.points {
                 if let Some(olib) = point.lib() {
-                    let mut object_lib = HashMap::<&str, PyObject>::new();
-                    for (key, value) in olib.iter() {
-                        let py_value = convert_lib_key_value(key, value, py).map_err(|e| {
-                            GlifReadError::new_err(format!(
-                                "Failed to read glif file at '{}' due to point lib data: {}",
-                                glif_path, e
-                            ))
-                        })?;
-                        object_lib.insert(key, py_value);
-                    }
+                    let object_lib = convert_object_lib(olib, py).map_err(|e| {
+                        GlifReadError::new_err(format!(
+                            "Failed to read glif file at '{}' due to point lib data: {}",
+                            glif_path, e
+                        ))
+                    })?;
                     object_libs.insert(
                         point.identifier().unwrap().as_str(),
                         object_lib.to_object(py),
@@ -169,16 +153,12 @@ fn read_glyph(
         }
         for component in &glyph.components {
             if let Some(olib) = component.lib() {
-                let mut object_lib = HashMap::<&str, PyObject>::new();
-                for (key, value) in olib.iter() {
-                    let py_value = convert_lib_key_value(key, value, py).map_err(|e| {
-                        GlifReadError::new_err(format!(
-                            "Failed to read glif file at '{}' due to component lib data: {}",
-                            glif_path, e
-                        ))
-                    })?;
-                    object_lib.insert(key, py_value);
-                }
+                let object_lib = convert_object_lib(olib, py).map_err(|e| {
+                    GlifReadError::new_err(format!(
+                        "Failed to read glif file at '{}' due to component lib data: {}",
+                        glif_path, e
+                    ))
+                })?;
                 object_libs.insert(
                     component.identifier().unwrap().as_str(),
                     object_lib.to_object(py),
@@ -268,6 +248,18 @@ fn read_glyph(
     }
 
     Ok(())
+}
+
+fn convert_object_lib<'a>(
+    olib: &'a plist::Dictionary,
+    py: Python,
+) -> PyResult<HashMap<&'a str, PyObject>> {
+    let mut object_lib = HashMap::<&str, PyObject>::new();
+    for (key, value) in olib.iter() {
+        let py_value = convert_lib_key_value(key, value, py)?;
+        object_lib.insert(key, py_value);
+    }
+    Ok(object_lib)
 }
 
 fn convert_anchor<'a>(anchor: &norad::Anchor, py: Python<'a>) -> &'a PyDict {
