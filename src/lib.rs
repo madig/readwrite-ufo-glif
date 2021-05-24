@@ -314,7 +314,7 @@ fn convert_point(point: &norad::ContourPoint, py: Python) -> PyObject {
 
 fn convert_component(component: &norad::Component, py: Python) -> PyObject {
     [
-        ("baseGlyphName", component.base.to_object(py)),
+        ("baseGlyph", component.base.to_object(py)),
         (
             "transformation",
             (
