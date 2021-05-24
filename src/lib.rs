@@ -19,6 +19,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
+use pyo3::types::PyDict;
 use pyo3::wrap_pyfunction;
 
 create_exception!(readwrite_ufo_glif, GlifReadError, PyException);
@@ -58,24 +59,7 @@ fn read_glyph(
         }
 
         if let Some(image) = &glyph.image {
-            let kwargs = [
-                ("fileName", image.file_name.to_string_lossy().to_object(py)),
-                ("xScale", image.transform.x_scale.to_object(py)),
-                ("xyScale", image.transform.xy_scale.to_object(py)),
-                ("yxScale", image.transform.yx_scale.to_object(py)),
-                ("yScale", image.transform.y_scale.to_object(py)),
-                ("xOffset", image.transform.x_offset.to_object(py)),
-                ("yOffset", image.transform.y_offset.to_object(py)),
-                (
-                    "color",
-                    image
-                        .color
-                        .as_ref()
-                        .map(|c| c.to_rgba_string())
-                        .to_object(py),
-                ),
-            ]
-            .into_py_dict(py);
+            let kwargs = convert_image(image, py);
             glyph_object.setattr("image", kwargs)?;
         }
 
@@ -83,22 +67,7 @@ fn read_glyph(
             let args: Vec<_> = glyph
                 .anchors
                 .iter()
-                .map(|a| {
-                    [
-                        ("name", a.name.to_object(py)),
-                        ("x", a.x.to_object(py)),
-                        ("y", a.y.to_object(py)),
-                        (
-                            "color",
-                            a.color.as_ref().map(|c| c.to_rgba_string()).to_object(py),
-                        ),
-                        (
-                            "identifier",
-                            a.identifier().as_ref().map(|c| c.as_str()).to_object(py),
-                        ),
-                    ]
-                    .into_py_dict(py)
-                })
+                .map(|a| convert_anchor(a, py))
                 .collect();
             glyph_object.setattr("anchors", args.to_object(py))?;
         }
@@ -107,28 +76,7 @@ fn read_glyph(
             let args: Vec<_> = glyph
                 .guidelines
                 .iter()
-                .map(|g| {
-                    let (x, y, angle) = match g.line {
-                        norad::Line::Vertical(x) => (Some(x), None, None),
-                        norad::Line::Horizontal(y) => (None, Some(y), None),
-                        norad::Line::Angle { x, y, degrees } => (Some(x), Some(y), Some(degrees)),
-                    };
-                    [
-                        ("name", g.name.to_object(py)),
-                        ("x", x.to_object(py)),
-                        ("y", y.to_object(py)),
-                        ("angle", angle.to_object(py)),
-                        (
-                            "color",
-                            g.color.as_ref().map(|c| c.to_rgba_string()).to_object(py),
-                        ),
-                        (
-                            "identifier",
-                            g.identifier().as_ref().map(|c| c.as_str()).to_object(py),
-                        ),
-                    ]
-                    .into_py_dict(py)
-                })
+                .map(|g| convert_guideline(g, py))
                 .collect();
             glyph_object.setattr("guidelines", args.to_object(py))?;
         }
@@ -320,6 +268,83 @@ fn read_glyph(
     }
 
     Ok(())
+}
+
+fn convert_anchor<'a>(anchor: &norad::Anchor, py: Python<'a>) -> &'a PyDict {
+    [
+        ("name", anchor.name.to_object(py)),
+        ("x", anchor.x.to_object(py)),
+        ("y", anchor.y.to_object(py)),
+        (
+            "color",
+            anchor
+                .color
+                .as_ref()
+                .map(|c| c.to_rgba_string())
+                .to_object(py),
+        ),
+        (
+            "identifier",
+            anchor
+                .identifier()
+                .as_ref()
+                .map(|c| c.as_str())
+                .to_object(py),
+        ),
+    ]
+    .into_py_dict(py)
+}
+
+fn convert_guideline<'a>(guideline: &norad::Guideline, py: Python<'a>) -> &'a PyDict {
+    let (x, y, angle) = match guideline.line {
+        norad::Line::Vertical(x) => (Some(x), None, None),
+        norad::Line::Horizontal(y) => (None, Some(y), None),
+        norad::Line::Angle { x, y, degrees } => (Some(x), Some(y), Some(degrees)),
+    };
+    [
+        ("name", guideline.name.to_object(py)),
+        ("x", x.to_object(py)),
+        ("y", y.to_object(py)),
+        ("angle", angle.to_object(py)),
+        (
+            "color",
+            guideline
+                .color
+                .as_ref()
+                .map(|c| c.to_rgba_string())
+                .to_object(py),
+        ),
+        (
+            "identifier",
+            guideline
+                .identifier()
+                .as_ref()
+                .map(|c| c.as_str())
+                .to_object(py),
+        ),
+    ]
+    .into_py_dict(py)
+}
+
+fn convert_image<'a>(image: &norad::Image, py: Python<'a>) -> &'a PyDict {
+    [
+        ("fileName", image.file_name.to_string_lossy().to_object(py)),
+        ("xScale", image.transform.x_scale.to_object(py)),
+        ("xyScale", image.transform.xy_scale.to_object(py)),
+        ("yxScale", image.transform.yx_scale.to_object(py)),
+        ("yScale", image.transform.y_scale.to_object(py)),
+        ("xOffset", image.transform.x_offset.to_object(py)),
+        ("yOffset", image.transform.y_offset.to_object(py)),
+        (
+            "color",
+            image
+                .color
+                .as_ref()
+                .map(|c| c.to_rgba_string())
+                .to_object(py),
+        ),
+    ]
+    .into_py_dict(py)
 }
 
 fn convert_lib_key_value(key: &str, value: &plist::Value, py: Python) -> PyResult<PyObject> {
