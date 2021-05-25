@@ -23,6 +23,7 @@ use pyo3::wrap_pyfunction;
 create_exception!(readwrite_ufo_glif, GlifReadError, PyException);
 
 #[pyfunction]
+#[text_signature = "(layer_path, /)"]
 fn read_layer(layer_path: &str) -> PyResult<HashMap<String, PyObject>> {
     let layer = norad::Layer::load(&layer_path, "".into()).map_err(|e| {
         GlifReadError::new_err(format!("Failed to read layer at '{}': {}", layer_path, e))
@@ -40,6 +41,7 @@ fn read_layer(layer_path: &str) -> PyResult<HashMap<String, PyObject>> {
 }
 
 #[pyfunction]
+#[text_signature = "(glif_path, /)"]
 fn read_glyph(glif_path: &str) -> PyResult<PyObject> {
     let glyph = norad::Glyph::load(&glif_path).map_err(|e| {
         GlifReadError::new_err(format!("Failed to read glif file at '{}': {}", glif_path, e))
