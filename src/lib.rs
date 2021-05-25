@@ -253,12 +253,18 @@ fn convert_guideline(guideline: &norad::Guideline, py: Python) -> PyObject {
 fn convert_image(image: &norad::Image, py: Python) -> PyObject {
     [
         ("fileName", image.file_name.to_string_lossy().to_object(py)),
-        ("xScale", image.transform.x_scale.to_object(py)),
-        ("xyScale", image.transform.xy_scale.to_object(py)),
-        ("yxScale", image.transform.yx_scale.to_object(py)),
-        ("yScale", image.transform.y_scale.to_object(py)),
-        ("xOffset", image.transform.x_offset.to_object(py)),
-        ("yOffset", image.transform.y_offset.to_object(py)),
+        (
+            "transformation",
+            (
+                image.transform.x_scale,
+                image.transform.xy_scale,
+                image.transform.yx_scale,
+                image.transform.y_scale,
+                image.transform.x_offset,
+                image.transform.y_offset,
+            )
+                .to_object(py),
+        ),
         (
             "color",
             image
