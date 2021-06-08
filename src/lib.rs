@@ -18,50 +18,198 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
+use pyo3::types::PyBytes;
 use pyo3::wrap_pyfunction;
+use serde::Serialize;
 
 create_exception!(readwrite_ufo_glif, GlifReadError, PyException);
 
-#[pyfunction]
-#[text_signature = "(layer_path, /)"]
-fn read_layer(layer_path: &str) -> PyResult<HashMap<String, PyObject>> {
-    let layer = norad::Layer::load(&layer_path, "".into()).map_err(|e| {
-        GlifReadError::new_err(format!("Failed to read layer at '{}': {}", layer_path, e))
-    })?;
+// #[pyfunction]
+// #[text_signature = "(layer_path, /)"]
+// fn read_layer(layer_path: &str) -> PyResult<HashMap<String, PyObject>> {
+//     let layer = norad::Layer::load(&layer_path, "".into()).map_err(|e| {
+//         GlifReadError::new_err(format!("Failed to read layer at '{}': {}", layer_path, e))
+//     })?;
 
-    let mut dicts: HashMap<String, PyObject> = HashMap::new();
-    let gil = Python::acquire_gil();
-    let py = gil.python();
-    for glyph in layer.iter().map(|g| g.as_ref()) {
-        let glyph_dict = convert_glyph(glyph, py)?;
-        dicts.insert(glyph.name.to_string(), glyph_dict);
-    }
+//     let mut dicts: HashMap<String, PyObject> = HashMap::new();
+//     let gil = Python::acquire_gil();
+//     let py = gil.python();
+//     for glyph in layer.iter().map(|g| g.as_ref()) {
+//         let glyph_dict = convert_glyph(glyph, py)?;
+//         dicts.insert(glyph.name.to_string(), glyph_dict);
+//     }
 
-    Ok(dicts)
-}
+//     Ok(dicts)
+// }
 
 #[pyfunction]
 #[text_signature = "(glif_path, /)"]
-fn read_glyph(glif_path: &str) -> PyResult<PyObject> {
+fn read_glyph(glif_path: &str) -> PyResult<Py<PyBytes>> {
     let glyph = norad::Glyph::load(&glif_path).map_err(|e| {
-        GlifReadError::new_err(format!("Failed to read glif file at '{}': {}", glif_path, e))
+        GlifReadError::new_err(format!(
+            "Failed to read glif file at '{}': {}",
+            glif_path, e
+        ))
+    })?;
+
+    let glyph_dict = convert_glyph2(&glyph)?;
+    let serialized = serde_pickle::to_vec(&glyph_dict, true).map_err(|e| {
+        GlifReadError::new_err(format!(
+            "Failed to pickle glif file at '{}': {}",
+            glif_path, e
+        ))
     })?;
 
     let gil = Python::acquire_gil();
     let py = gil.python();
-    let glyph_dict = convert_glyph(&glyph, py)?;
+    let bytes = unsafe { PyBytes::from_ptr(py, serialized.as_ptr(), serialized.len()) };
+    let converted: Py<PyBytes> = Py::from(bytes);
 
-    Ok(glyph_dict)
+    Ok(converted)
 }
 
 #[pymodule]
 fn readwrite_ufo_glif(py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(read_layer, m)?)?;
+    // m.add_function(wrap_pyfunction!(read_layer, m)?)?;
     m.add_function(wrap_pyfunction!(read_glyph, m)?)?;
 
     m.add("GlifReadError", py.get_type::<GlifReadError>())?;
 
     Ok(())
+}
+
+#[derive(Serialize)]
+struct GlyphDict {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unicodes: Option<Vec<u32>>,
+    #[serde(skip_serializing_if = "f32_is_zero")]
+    height: f32,
+    #[serde(skip_serializing_if = "f32_is_zero")]
+    width: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image: Option<ImageDict>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    anchors: Option<AnchorDict>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    guidelines: Option<GuidelineDict>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    // do https://github.com/ebarnard/rust-plist/issues/54#issuecomment-827000246 ?
+    lib: Option<HashMap<String, serde_json::value::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    contours: Option<Vec<ContourDict>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    components: Option<Vec<ComponentDict>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ImageDict {
+    #[serde(rename = "fileName")]
+    file_name: String,
+    #[serde(skip_serializing_if = "transform_is_identity")]
+    transformation: (f32, f32, f32, f32, f32, f32),
+    #[serde(skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AnchorDict {
+    name: String,
+    x: f32,
+    y: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identifier: Option<String>,
+}
+
+#[derive(Serialize)]
+struct GuidelineDict {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    x: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    y: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    angle: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identifier: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ContourDict {
+    points: Vec<PointDict>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identifier: Option<String>,
+}
+
+#[derive(Serialize)]
+struct PointDict {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    x: f32,
+    y: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    smooth: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identifier: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ComponentDict {
+    #[serde(rename = "baseGlyph")]
+    base_glyph: String,
+    #[serde(skip_serializing_if = "transform_is_identity")]
+    transformation: (f32, f32, f32, f32, f32, f32),
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identifier: Option<String>,
+}
+
+fn f32_is_zero(v: &f32) -> bool {
+    v == &0.0
+}
+
+fn transform_is_identity(transformation: &(f32, f32, f32, f32, f32, f32)) -> bool {
+    transformation == &(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+}
+
+fn convert_glyph2(glyph: &norad::Glyph) -> PyResult<GlyphDict> {
+    let unicodes: Option<Vec<u32>> = if !glyph.codepoints.is_empty() {
+        Some(glyph.codepoints.iter().map(|c| *c as u32).collect())
+    } else {
+        None
+    };
+    let image: Option<ImageDict> = glyph.image.as_ref().map(|i| ImageDict {
+        file_name: i.file_name.to_string_lossy().into(),
+        transformation: (
+            i.transform.x_scale,
+            i.transform.xy_scale,
+            i.transform.yx_scale,
+            i.transform.y_scale,
+            i.transform.x_offset,
+            i.transform.y_offset,
+        ),
+        color: i.color.as_ref().map(|c| c.to_rgba_string()),
+    });
+
+    Ok(GlyphDict {
+        unicodes,
+        height: glyph.height,
+        width: glyph.width,
+        image,
+        anchors: None,
+        guidelines: None,
+        lib: None,
+        contours: None,
+        components: None,
+        note: None,
+    })
 }
 
 fn convert_glyph(glyph: &norad::Glyph, py: Python) -> PyResult<PyObject> {
