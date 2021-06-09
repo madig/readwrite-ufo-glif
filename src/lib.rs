@@ -88,10 +88,10 @@ struct GlyphDict {
     width: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<ImageDict>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    anchors: Option<AnchorDict>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    guidelines: Option<GuidelineDict>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    anchors: Vec<AnchorDict>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    guidelines: Vec<GuidelineDict>,
     #[serde(skip_serializing_if = "Option::is_none")]
     // do https://github.com/ebarnard/rust-plist/issues/54#issuecomment-827000246 ?
     lib: Option<HashMap<String, serde_json::value::Value>>,
@@ -115,7 +115,7 @@ struct ImageDict {
 
 #[derive(Serialize)]
 struct AnchorDict {
-    name: String,
+    name: Option<String>,
     x: f32,
     y: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -197,14 +197,55 @@ fn convert_glyph2(glyph: &norad::Glyph) -> PyResult<GlyphDict> {
         ),
         color: i.color.as_ref().map(|c| c.to_rgba_string()),
     });
+    let anchors: Vec<AnchorDict> = glyph
+        .anchors
+        .iter()
+        .map(|a| AnchorDict {
+            name: a.name.clone(),
+            x: a.x,
+            y: a.y,
+            color: a.color.as_ref().map(|c| c.to_rgba_string()),
+            identifier: a.identifier().as_ref().map(|c| String::from(c.as_str())),
+        })
+        .collect();
+    let guidelines: Vec<GuidelineDict> = glyph
+        .guidelines
+        .iter()
+        .map(|g| match g.line {
+            norad::Line::Vertical(x) => GuidelineDict {
+                x: Some(x),
+                y: None,
+                angle: None,
+                name: g.name.clone(),
+                color: g.color.as_ref().map(|c| c.to_rgba_string()),
+                identifier: g.identifier().as_ref().map(|c| String::from(c.as_str())),
+            },
+            norad::Line::Horizontal(y) => GuidelineDict {
+                x: None,
+                y: Some(y),
+                angle: None,
+                name: g.name.clone(),
+                color: g.color.as_ref().map(|c| c.to_rgba_string()),
+                identifier: g.identifier().as_ref().map(|c| String::from(c.as_str())),
+            },
+            norad::Line::Angle { x, y, degrees } => GuidelineDict {
+                x: Some(x),
+                y: Some(y),
+                angle: Some(degrees),
+                name: g.name.clone(),
+                color: g.color.as_ref().map(|c| c.to_rgba_string()),
+                identifier: g.identifier().as_ref().map(|c| String::from(c.as_str())),
+            },
+        })
+        .collect();
 
     Ok(GlyphDict {
         unicodes,
         height: glyph.height,
         width: glyph.width,
         image,
-        anchors: None,
-        guidelines: None,
+        anchors,
+        guidelines,
         lib: None,
         contours: None,
         components: None,
