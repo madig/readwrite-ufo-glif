@@ -66,20 +66,28 @@ fn readwrite_ufo_glif(py: Python, m: &PyModule) -> PyResult<()> {
 
 fn convert_glyph(glyph: &norad::Glyph, py: Python) -> PyResult<PyObject> {
     let mut glyph_dict: HashMap<&str, PyObject> = HashMap::new();
+
     if !glyph.codepoints.is_empty() {
         let codepoints: Vec<u32> = glyph.codepoints.iter().map(|c| *c as u32).collect();
         glyph_dict.insert("unicodes", codepoints.to_object(py));
     }
+
     if glyph.height != 0.0 {
         glyph_dict.insert("height", glyph.height.to_object(py));
     }
     if glyph.width != 0.0 {
         glyph_dict.insert("width", glyph.width.to_object(py));
     }
+
     if let Some(image) = &glyph.image {
         let kwargs = convert_image(image, py);
         glyph_dict.insert("image", kwargs.to_object(py));
     }
+
+    if let Some(note) = &glyph.note {
+        glyph_dict.insert("note", note.to_object(py));
+    }
+
     if !glyph.anchors.is_empty() {
         let args: Vec<_> = glyph
             .anchors
@@ -88,6 +96,7 @@ fn convert_glyph(glyph: &norad::Glyph, py: Python) -> PyResult<PyObject> {
             .collect();
         glyph_dict.insert("anchors", args.to_object(py));
     }
+
     if !glyph.guidelines.is_empty() {
         let args: Vec<_> = glyph
             .guidelines
@@ -96,81 +105,7 @@ fn convert_glyph(glyph: &norad::Glyph, py: Python) -> PyResult<PyObject> {
             .collect();
         glyph_dict.insert("guidelines", args.to_object(py));
     }
-    let mut glyph_lib = HashMap::<&str, PyObject>::new();
-    for (key, value) in glyph.lib.iter() {
-        let py_value = convert_lib_key_value(key, value, py).map_err(|e| {
-            GlifReadError::new_err(format!(
-                "Failed to convert lib data for glyph '{}': {}",
-                &glyph.name, e
-            ))
-        })?;
-        glyph_lib.insert(key, py_value);
-    }
-    let mut object_libs = HashMap::<&str, PyObject>::new();
-    for anchor in &glyph.anchors {
-        if let Some(olib) = anchor.lib() {
-            let object_lib = convert_object_lib(olib, py).map_err(|e| {
-                GlifReadError::new_err(format!(
-                    "Failed to convert lib data for glyph '{}': {}",
-                    &glyph.name, e
-                ))
-            })?;
-            object_libs.insert(anchor.identifier().unwrap().as_str(), object_lib);
-        }
-    }
-    for guideline in &glyph.guidelines {
-        if let Some(olib) = guideline.lib() {
-            let object_lib = convert_object_lib(olib, py).map_err(|e| {
-                GlifReadError::new_err(format!(
-                    "Failed to convert lib data for glyph '{}': {}",
-                    &glyph.name, e
-                ))
-            })?;
-            object_libs.insert(guideline.identifier().unwrap().as_str(), object_lib);
-        }
-    }
-    for contour in &glyph.contours {
-        if let Some(olib) = contour.lib() {
-            let object_lib = convert_object_lib(olib, py).map_err(|e| {
-                GlifReadError::new_err(format!(
-                    "Failed to convert lib data for glyph '{}': {}",
-                    &glyph.name, e
-                ))
-            })?;
-            object_libs.insert(contour.identifier().unwrap().as_str(), object_lib);
-        }
-        for point in &contour.points {
-            if let Some(olib) = point.lib() {
-                let object_lib = convert_object_lib(olib, py).map_err(|e| {
-                    GlifReadError::new_err(format!(
-                        "Failed to convert lib data for glyph '{}': {}",
-                        &glyph.name, e
-                    ))
-                })?;
-                object_libs.insert(point.identifier().unwrap().as_str(), object_lib);
-            }
-        }
-    }
-    for component in &glyph.components {
-        if let Some(olib) = component.lib() {
-            let object_lib = convert_object_lib(olib, py).map_err(|e| {
-                GlifReadError::new_err(format!(
-                    "Failed to convert lib data for glyph '{}': {}",
-                    &glyph.name, e
-                ))
-            })?;
-            object_libs.insert(component.identifier().unwrap().as_str(), object_lib);
-        }
-    }
-    if !object_libs.is_empty() {
-        glyph_lib.insert("public.objectLibs", object_libs.to_object(py));
-    }
-    if !glyph_lib.is_empty() {
-        glyph_dict.insert("lib", glyph_lib.into_py_dict(py).to_object(py));
-    }
-    if let Some(note) = &glyph.note {
-        glyph_dict.insert("note", note.to_object(py));
-    }
+
     let mut contours: Vec<PyObject> = Vec::new();
     for contour in &glyph.contours {
         let points: Vec<PyObject> = contour
@@ -182,12 +117,37 @@ fn convert_glyph(glyph: &norad::Glyph, py: Python) -> PyResult<PyObject> {
         contours.push(contour);
     }
     glyph_dict.insert("contours", contours.to_object(py));
+
     let components: Vec<PyObject> = glyph
         .components
         .iter()
         .map(|c| convert_component(c, py))
         .collect();
     glyph_dict.insert("components", components.to_object(py));
+
+    let mut glyph_lib = HashMap::<&str, PyObject>::new();
+    for (key, value) in glyph.lib.iter() {
+        let py_value = convert_lib_key_value(key, value, py).map_err(|e| {
+            GlifReadError::new_err(format!(
+                "Failed to convert lib data for glyph '{}': {}",
+                &glyph.name, e
+            ))
+        })?;
+        glyph_lib.insert(key, py_value);
+    }
+    let object_libs_plist = dump_object_libs(&glyph);
+    if !object_libs_plist.is_empty() {
+        let object_libs = convert_object_lib(&object_libs_plist, py).map_err(|e| {
+            GlifReadError::new_err(format!(
+                "Failed to convert object lib data for glyph '{}': {}",
+                &glyph.name, e
+            ))
+        })?;
+        glyph_lib.insert("public.objectLibs", object_libs);
+    }
+    if !glyph_lib.is_empty() {
+        glyph_dict.insert("lib", glyph_lib.into_py_dict(py).to_object(py));
+    }
 
     Ok(glyph_dict.to_object(py))
 }
@@ -403,4 +363,43 @@ fn convert_lib_key_value(key: &str, value: &plist::Value, py: Python) -> PyResul
             )))
         }
     })
+}
+
+fn dump_object_libs(glyph: &norad::Glyph) -> norad::Plist {
+    let mut object_libs = norad::Plist::default();
+
+    let mut dump_lib = |id: Option<&norad::Identifier>, lib: &norad::Plist| {
+        let id = id.map(|id| id.as_str().to_string());
+        object_libs.insert(id.unwrap(), plist::Value::Dictionary(lib.clone()));
+    };
+
+    for anchor in &glyph.anchors {
+        if let Some(lib) = anchor.lib() {
+            dump_lib(anchor.identifier(), lib);
+        }
+    }
+
+    for guideline in &glyph.guidelines {
+        if let Some(lib) = guideline.lib() {
+            dump_lib(guideline.identifier(), lib);
+        }
+    }
+
+    for contour in &glyph.contours {
+        if let Some(lib) = contour.lib() {
+            dump_lib(contour.identifier(), lib);
+        }
+        for point in &contour.points {
+            if let Some(lib) = point.lib() {
+                dump_lib(point.identifier(), lib);
+            }
+        }
+    }
+    for component in &glyph.components {
+        if let Some(lib) = component.lib() {
+            dump_lib(component.identifier(), lib);
+        }
+    }
+
+    object_libs
 }
