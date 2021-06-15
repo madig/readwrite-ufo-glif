@@ -13,18 +13,20 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use pyo3::types::IntoPyDict;
+use pyo3::types::{IntoPyDict, PyDict};
 use pyo3::wrap_pyfunction;
 
 create_exception!(readwrite_ufo_glif, GlifReadError, PyException);
 
 #[pyfunction]
 #[text_signature = "(layer_path, /)"]
-fn read_layer(layer_path: &str) -> PyResult<HashMap<String, PyObject>> {
+fn read_layer(layer_path: &str) -> PyResult<(HashMap<String, PyObject>, PyObject)> {
     let layer = norad::Layer::load(&layer_path, "".into()).map_err(|e| {
         GlifReadError::new_err(format!("Failed to read layer at '{}': {}", layer_path, e))
     })?;
@@ -37,14 +39,86 @@ fn read_layer(layer_path: &str) -> PyResult<HashMap<String, PyObject>> {
         dicts.insert(glyph.name.to_string(), glyph_dict);
     }
 
-    Ok(dicts)
+    let layerinfo = convert_layerinfo(&layer, py).map_err(|e| {
+        GlifReadError::new_err(format!(
+            "Failed to convert layerinfo lib for '{}': {}",
+            layer_path, e
+        ))
+    })?;
+
+    Ok((dicts, layerinfo))
+}
+
+#[pyfunction]
+#[text_signature = "(layer_path, /)"]
+fn read_layer_contents(layer_path: &str) -> PyResult<HashMap<String, String>> {
+    let layer_path = PathBuf::from(layer_path);
+    let contents_path = layer_path.join("contents.plist");
+    let contents: HashMap<String, String> = plist::from_file(&contents_path).map_err(|e| {
+        GlifReadError::new_err(format!(
+            "Failed to load '{}': {}",
+            contents_path.display(),
+            e
+        ))
+    })?;
+
+    Ok(contents)
+}
+
+#[pyfunction]
+#[text_signature = "(layer_path, /)"]
+fn read_layerinfo_maybe(layer_path: &str) -> PyResult<(Option<String>, PyObject)> {
+    let layer_path = PathBuf::from(layer_path);
+    let info_path = layer_path.join("layerinfo.plist");
+
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+
+    if !info_path.exists() {
+        return Ok((None, PyDict::new(py).to_object(py)));
+    }
+
+    let mut info_content = plist::Value::from_file(&info_path)
+        .map_err(|e| {
+            GlifReadError::new_err(format!("Failed to load '{}': {}", info_path.display(), e))
+        })?
+        .into_dictionary()
+        .ok_or_else(|| GlifReadError::new_err("layerinfo.plist must contain a dictionary"))?;
+
+    let mut color = None;
+    let color_str = info_content.remove("color");
+    if let Some(v) = color_str {
+        match v.into_string() {
+            Some(s) => color.replace(
+                norad::Color::from_str(&s)
+                    .map_err(|e| GlifReadError::new_err(format!("Failed to convert color: {}", e)))?
+                    .to_rgba_string(),
+            ),
+            None => return Err(GlifReadError::new_err("Color must be a string")),
+        };
+    };
+
+    let lib = match info_content.remove("lib") {
+        Some(v) => v.into_dictionary().ok_or_else(|| {
+            GlifReadError::new_err("A layerinfo.plist's lib must be a dictionary")
+        })?,
+        None => norad::Plist::new(),
+    };
+
+    let lib_py = convert_object_lib(&lib, py)
+        .map_err(|e| GlifReadError::new_err(format!("Failed to convert layerinfo lib: {}", e)))?;
+
+    Ok((color, lib_py))
 }
 
 #[pyfunction]
 #[text_signature = "(glif_path, /)"]
 fn read_glyph(glif_path: &str) -> PyResult<PyObject> {
     let glyph = norad::Glyph::load(&glif_path).map_err(|e| {
-        GlifReadError::new_err(format!("Failed to read glif file at '{}': {}", glif_path, e))
+        GlifReadError::new_err(format!(
+            "Failed to read glif file at '{}': {}",
+            glif_path, e
+        ))
     })?;
 
     let gil = Python::acquire_gil();
@@ -57,6 +131,8 @@ fn read_glyph(glif_path: &str) -> PyResult<PyObject> {
 #[pymodule]
 fn readwrite_ufo_glif(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_layer, m)?)?;
+    m.add_function(wrap_pyfunction!(read_layer_contents, m)?)?;
+    m.add_function(wrap_pyfunction!(read_layerinfo_maybe, m)?)?;
     m.add_function(wrap_pyfunction!(read_glyph, m)?)?;
 
     m.add("GlifReadError", py.get_type::<GlifReadError>())?;
@@ -363,6 +439,24 @@ fn convert_lib_key_value(key: &str, value: &plist::Value, py: Python) -> PyResul
             )))
         }
     })
+}
+
+fn convert_layerinfo(layer: &norad::Layer, py: Python) -> PyResult<PyObject> {
+    let layerinfo = [
+        (
+            "color",
+            layer
+                .color
+                .as_ref()
+                .map(|c| c.to_rgba_string())
+                .to_object(py),
+        ),
+        ("lib", convert_object_lib(&layer.lib, py)?),
+    ]
+    .into_py_dict(py)
+    .to_object(py);
+
+    Ok(layerinfo)
 }
 
 fn dump_object_libs(glyph: &norad::Glyph) -> norad::Plist {
